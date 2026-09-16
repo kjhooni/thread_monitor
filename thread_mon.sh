@@ -2,7 +2,7 @@
 
 METRIC_URL="http://localhost:9404/metrics"
 
-LOG_DIR="/data/hyperframe/log/HEALTH11/threadpool"
+LOG_DIR="/var/log/threadpool"
 
 INFO_LOG="${LOG_DIR}/threadpool_$(date +%Y%m%d).log"
 WARN_LOG="${LOG_DIR}/threadpool_warn_$(date +%Y%m%d).log"

@@ -141,10 +141,10 @@ curl -s http://localhost:9404/metrics | grep 'catalina_threadpool_' | grep 'ajp-
 예:
 
 ```text
-catalina_threadpool_currentthreadcount{name="\"ajp-apr-172.25.1.79-8209\""} 100.0
-catalina_threadpool_currentthreadsbusy{name="\"ajp-apr-172.25.1.79-8209\""} 0.0
-catalina_threadpool_maxthreads{name="\"ajp-apr-172.25.1.79-8209\""} 200.0
-catalina_threadpool_connectioncount{name="\"ajp-apr-172.25.1.79-8209\""} 1.0
+catalina_threadpool_currentthreadcount{name="\"ajp-apr-192.0.2.10-8209\""} 100.0
+catalina_threadpool_currentthreadsbusy{name="\"ajp-apr-192.0.2.10-8209\""} 0.0
+catalina_threadpool_maxthreads{name="\"ajp-apr-192.0.2.10-8209\""} 200.0
+catalina_threadpool_connectioncount{name="\"ajp-apr-192.0.2.10-8209\""} 1.0
 ```
 
 `thread_mon.sh`는 AJP Connector 이름이나 IP를 직접 지정하지 않습니다.
@@ -160,7 +160,7 @@ metrics 중 `ajp-` Connector를 자동으로 검색합니다.
 ```bash
 METRIC_URL="http://localhost:9404/metrics"
 
-LOG_DIR="/data/hyperframe/log/HEALTH11/threadpool"
+LOG_DIR="/var/log/threadpool"
 
 WARN_THRESHOLD=80
 CRIT_THRESHOLD=90
@@ -243,7 +243,7 @@ Crontab 등록 전에 수동으로 실행합니다.
 예:
 
 ```bash
-ls -l /data/hyperframe/log/HEALTH11/threadpool/
+ls -l /var/log/threadpool/
 ```
 
 INFO 로그:
@@ -267,13 +267,13 @@ threadpool_critical_20260916.log
 INFO 로그 확인:
 
 ```bash
-cat /data/hyperframe/log/HEALTH11/threadpool/threadpool_$(date +%Y%m%d).log
+cat /var/log/threadpool/threadpool_$(date +%Y%m%d).log
 ```
 
 예:
 
 ```text
-2026-09-16 16:00:01 AJP=ajp-apr-172.25.1.79-8209 BUSY=0/200(0%) CURRENT=100 CONNECTION=1
+2026-09-16 16:00:01 AJP=ajp-apr-192.0.2.10-8209 BUSY=0/200(0%) CURRENT=100 CONNECTION=1
 ```
 
 ---
@@ -421,7 +421,7 @@ Thread Pool 사용률:
 항상 현재 상태를 기록합니다.
 
 ```text
-2026-09-16 16:00:01 AJP=ajp-apr-172.25.1.79-8209 BUSY=20/200(10%) CURRENT=100 CONNECTION=1
+2026-09-16 16:00:01 AJP=ajp-apr-192.0.2.10-8209 BUSY=20/200(10%) CURRENT=100 CONNECTION=1
 ```
 
 ## WARN
@@ -437,7 +437,7 @@ Thread Pool 사용률이 `WARN_THRESHOLD` 이상인 경우 기록합니다.
 예:
 
 ```text
-[WARN] 2026-09-16 16:10:01 AJP=ajp-apr-172.25.1.79-8209 BUSY=165/200(82%) CURRENT=200 CONNECTION=10 CPU=35.2% MEM=61.4% LOAD= 1.20, 1.10, 0.95
+[WARN] 2026-09-16 16:10:01 AJP=ajp-apr-192.0.2.10-8209 BUSY=165/200(82%) CURRENT=200 CONNECTION=10 CPU=35.2% MEM=61.4% LOAD= 1.20, 1.10, 0.95
 ```
 
 ## CRITICAL
@@ -453,7 +453,7 @@ Thread Pool 사용률이 `CRIT_THRESHOLD` 이상인 경우 기록합니다.
 예:
 
 ```text
-[CRITICAL] 2026-09-16 16:15:01 AJP=ajp-apr-172.25.1.79-8209 BUSY=185/200(92%) CURRENT=200 CONNECTION=15 CPU=72.3% MEM=78.1% LOAD= 3.20, 2.90, 2.50
+[CRITICAL] 2026-09-16 16:15:01 AJP=ajp-apr-192.0.2.10-8209 BUSY=185/200(92%) CURRENT=200 CONNECTION=15 CPU=72.3% MEM=78.1% LOAD= 3.20, 2.90, 2.50
 ```
 
 WARN / CRITICAL 상태에서는 서버의 CPU, Memory, Load Average도 함께 기록합니다.
