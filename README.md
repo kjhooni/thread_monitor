@@ -11,6 +11,7 @@ Thread Pool 사용률에 따라 INFO / WARN / CRITICAL 로그를 기록하는 �
 ├── config.env (선택, git에는 포함되지 않음)
 ├── config.yaml
 ├── jmx_prometheus_javaagent-1.6.0.jar
+├── logrotate
 └── thread_mon.sh
 ```
 
@@ -22,6 +23,7 @@ Thread Pool 사용률에 따라 INFO / WARN / CRITICAL 로그를 기록하는 �
 | `config.yaml`                        | JMX Exporter 설정 파일                 |
 | `thread_mon.sh`                      | Tomcat AJP Thread Pool 모니터링 스크립트   |
 | `config.env`                         | Teams 알림 웹훅 등 민감한 설정 (git에 커밋되지 않음) |
+| `logrotate`                          | INFO 로그(`threadpool_*.log`) 순환 설정 (logrotate 설정 파일) |
 | `README.md`                          | 설치 및 사용 방법                         |
 
 ---
@@ -284,7 +286,7 @@ cat /var/log/threadpool/threadpool_$(date +%Y%m%d).log
 예:
 
 ```text
-2026-09-16 16:00:01 AJP=ajp-apr-192.0.2.10-8209 BUSY=0/200(0%) CURRENT=100 CONNECTION=1
+2026-09-16 16:00:01 HOST=was01 AJP=ajp-apr-192.0.2.10-8209 BUSY=0/200(0%) CURRENT=100 CONNECTION=1
 ```
 
 ---
@@ -323,6 +325,51 @@ crontab -e
 
 ```cron
 * * * * * /opt/tomcat-thread-monitor/thread_mon.sh
+```
+
+---
+
+## 8.1 Logrotate 설정 (로그 파일 자동 정리)
+
+`thread_mon.sh`는 1분마다 실행되며 INFO 로그(`threadpool_YYYYMMDD.log`)를 계속 쌓기 때문에,
+운영 환경에서는 `logrotate`를 등록해 오래된 로그를 자동으로 정리하는 것을 권장합니다.
+
+Repository에 포함된 `logrotate` 파일을 시스템의 logrotate 설정 경로로 복사합니다.
+
+```bash
+cp logrotate /etc/logrotate.d/thread_mon
+```
+
+`logrotate` 파일 내용:
+
+```text
+/data/hyperframe/log/*/threadpool/threadpool_*.log
+{
+    rotate 30
+    daily
+    compress
+
+    missingok
+    notifempty
+
+    su root root
+}
+```
+
+* 대상 경로(`/data/hyperframe/log/*/threadpool/threadpool_*.log`)는 `LOG_DIR` 설정에 맞게
+  수정해야 합니다. `LOG_DIR`을 기본값(`/var/log/threadpool`)으로 사용하는 경우
+  `/var/log/threadpool/threadpool_*.log`로 변경합니다.
+* `rotate 30`: 최대 30개(약 30일치) 보관 후 삭제
+* `daily`: 매일 순환
+* `compress`: 순환된 로그를 압축
+* WARN/CRITICAL 로그(`threadpool_warn_*.log`, `threadpool_critical_*.log`)와
+  Thread Dump 파일은 이 설정에 포함되지 않습니다. Thread Dump는 `thread_mon.sh`가
+  `THREAD_DUMP_RETENTION_DAYS`(기본 7일)에 따라 자체적으로 정리합니다.
+
+설정 반영 여부는 다음으로 확인할 수 있습니다.
+
+```bash
+logrotate -d /etc/logrotate.d/thread_mon
 ```
 
 ---
@@ -432,7 +479,7 @@ Thread Pool 사용률:
 항상 현재 상태를 기록합니다.
 
 ```text
-2026-09-16 16:00:01 AJP=ajp-apr-192.0.2.10-8209 BUSY=20/200(10%) CURRENT=100 CONNECTION=1
+2026-09-16 16:00:01 HOST=was01 AJP=ajp-apr-192.0.2.10-8209 BUSY=20/200(10%) CURRENT=100 CONNECTION=1
 ```
 
 ## WARN
@@ -448,7 +495,7 @@ Thread Pool 사용률이 `WARN_THRESHOLD` 이상인 경우 기록합니다.
 예:
 
 ```text
-[WARN] 2026-09-16 16:10:01 AJP=ajp-apr-192.0.2.10-8209 BUSY=165/200(82%) CURRENT=200 CONNECTION=10 CPU=35.2% MEM=61.4% LOAD= 1.20, 1.10, 0.95
+[WARN] 2026-09-16 16:10:01 HOST=was01 AJP=ajp-apr-192.0.2.10-8209 BUSY=165/200(82%) CURRENT=200 CONNECTION=10 CPU=35.2% MEM=61.4% LOAD= 1.20, 1.10, 0.95
 ```
 
 ## CRITICAL
@@ -464,7 +511,7 @@ Thread Pool 사용률이 `CRIT_THRESHOLD` 이상인 경우 기록합니다.
 예:
 
 ```text
-[CRITICAL] 2026-09-16 16:15:01 AJP=ajp-apr-192.0.2.10-8209 BUSY=185/200(92%) CURRENT=200 CONNECTION=15 CPU=72.3% MEM=78.1% LOAD= 3.20, 2.90, 2.50
+[CRITICAL] 2026-09-16 16:15:01 HOST=was01 AJP=ajp-apr-192.0.2.10-8209 BUSY=185/200(92%) CURRENT=200 CONNECTION=15 CPU=72.3% MEM=78.1% LOAD= 3.20, 2.90, 2.50
 ```
 
 WARN / CRITICAL 상태에서는 서버의 CPU, Memory, Load Average도 함께 기록합니다.
@@ -556,6 +603,25 @@ WAS의 Thread Dump를 함께 남깁니다. 사용률이 WARN/CRITICAL로 계속 
 > 프로세스가 여러 개 매칭되면(예: 같은 서버에 WAS가 여러 개 실행 중) 첫 번째로 검색된
 > PID를 대상으로 합니다. 특정 WAS를 지정하고 싶다면 `WAS_PROCESS_PATTERN`을
 > 더 구체적으로(예: 포트 번호나 인스턴스 이름 포함) 설정하세요.
+
+## 13.6 메트릭 조회 실패 알림
+
+JMX Exporter 자체가 응답하지 않거나(`METRIC_URL` 접속 불가) metric 파싱이 실패하는 경우
+(예: WAS 다운, JMX Exporter 프로세스 종료), Thread Pool 사용률과는 별개로 실패 상황을
+알립니다.
+
+* 실패할 때마다 `WARN_LOG`에 실패 사유와 연속 실패 횟수가 기록됩니다.
+* 연속 실패 횟수가 `METRIC_FAIL_THRESHOLD`(기본값 `3`, 즉 3분)에 도달하는 시점에
+  `[CRITICAL]` Teams 알림이 1회 전송됩니다. 이후에도 실패가 계속되는 동안에는
+  반복 전송되지 않습니다.
+* 이후 metric 조회가 다시 정상화되면 `[RECOVERED]` Teams 알림이 전송되고
+  연속 실패 횟수가 초기화됩니다.
+
+`METRIC_FAIL_THRESHOLD`는 `config.env`에서 덮어쓸 수 있습니다.
+
+```bash
+METRIC_FAIL_THRESHOLD=3
+```
 
 ## 13.3 카드 형식
 
