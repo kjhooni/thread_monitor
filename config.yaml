@@ -3,5 +3,9 @@ startDelaySeconds: 0
 lowercaseOutputName: true
 lowercaseOutputLabelNames: true
 
+# thread_mon.sh가 필요로 하는 Tomcat ThreadPool MBean만 조회 (그 외 MBean은 스캔하지 않음)
+whitelistObjectNames:
+  - "Catalina:type=ThreadPool,*"
+
 rules:
   - pattern: '.*'

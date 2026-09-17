@@ -8,6 +8,7 @@ Thread Pool 사용률에 따라 INFO / WARN / CRITICAL 로그를 기록하는 �
 ```text
 .
 ├── README.md
+├── config.env (선택, git에는 포함되지 않음)
 ├── config.yaml
 ├── jmx_prometheus_javaagent-1.6.0.jar
 └── thread_mon.sh
@@ -20,6 +21,7 @@ Thread Pool 사용률에 따라 INFO / WARN / CRITICAL 로그를 기록하는 �
 | `jmx_prometheus_javaagent-1.6.0.jar` | Prometheus JMX Exporter Java Agent |
 | `config.yaml`                        | JMX Exporter 설정 파일                 |
 | `thread_mon.sh`                      | Tomcat AJP Thread Pool 모니터링 스크립트   |
+| `config.env`                         | Teams 알림 웹훅 등 민감한 설정 (git에 커밋되지 않음) |
 | `README.md`                          | 설치 및 사용 방법                         |
 
 ---
@@ -71,6 +73,15 @@ Repository에 포함된 `config.yaml`을 확인합니다.
 ```bash
 cat config.yaml
 ```
+
+`whitelistObjectNames`로 Tomcat AJP Thread Pool MBean(`Catalina:type=ThreadPool,*`)만
+조회하도록 범위를 좁혀두었습니다. `thread_mon.sh`는 1분마다 `/metrics`를 스크래핑하므로,
+모든 MBean을 대상으로 하면(`whitelistObjectNames` 미설정) 스크래핑마다 JVM의 모든 MBean을
+읽게 되어 불필요한 부하가 생깁니다. 출력되는 metric 이름(`catalina_threadpool_*`)은
+기존과 동일하므로 `thread_mon.sh` 수정은 필요 없습니다.
+
+> `config.yaml`은 WAS 기동 시 Java Agent 옵션으로 로드되므로, 파일을 수정한 뒤에는
+> WAS(Tomcat)를 재기동해야 반영됩니다.
 
 JMX Exporter는 Java Agent로 실행되며 Prometheus metrics를 HTTP로 제공합니다.
 
@@ -460,7 +471,97 @@ WARN / CRITICAL 상태에서는 서버의 CPU, Memory, Load Average도 함께 �
 
 ---
 
-# 13. 문제 해결
+# 13. Teams 멘션 알림
+
+`WARN` 또는 `CRITICAL` 상태가 발생하면 `thread_mon.sh`가 Power Automate 웹훅을 통해
+Teams로 Adaptive Card 알림을 전송하며, 지정한 담당자를 `@멘션`합니다.
+
+## 13.1 config.env 설정
+
+스크립트와 같은 디렉토리에 `config.env` 파일을 생성합니다. (git에는 포함되지 않습니다.)
+
+```bash
+WEBHOOK_URL="https://.../triggers/manual/paths/invoke?..."
+TEAMS_MENTION_ID="사용자의 Teams(AAD) Object ID"
+TEAMS_MENTION_NAME="화면에 표시될 이름"
+WARN_THRESHOLD=80
+CRIT_THRESHOLD=90
+```
+
+| 변수                    | 설명                                                  |
+| --------------------- | --------------------------------------------------- |
+| `WEBHOOK_URL`         | Teams에 Adaptive Card를 게시하는 Power Automate 플로우 URL   |
+| `TEAMS_MENTION_ID`    | 멘션할 사용자의 Teams(AAD) Object ID                        |
+| `TEAMS_MENTION_NAME`  | 멘션 텍스트(`<at>이름</at>`)에 표시할 이름                        |
+| `WARN_THRESHOLD`      | 스크립트 상단 기본값을 덮어씀 (선택)                                |
+| `CRIT_THRESHOLD`      | 스크립트 상단 기본값을 덮어씀 (선택)                                |
+
+`config.env`가 없거나 `WEBHOOK_URL`이 비어있으면 Teams 알림 전송은 건너뛰고
+기존의 로그 기록 동작만 수행합니다.
+
+## 13.2 전송 조건 (상태 변화 시에만 전송)
+
+매 실행마다 현재 상태를 `OK` / `WARN` / `CRITICAL` 중 하나로 판정하고,
+직전 실행의 상태를 `${LOG_DIR}/.thread_mon_state` 파일에 저장해 비교합니다.
+**직전 상태와 동일하면 알림을 보내지 않고(쿨다운), 상태가 바뀐 경우에만 알림을 전송**합니다.
+
+| 직전 상태 → 현재 상태            | 알림 전송 여부                  |
+| -------------------------- | -------------------------- |
+| OK → WARN / CRITICAL       | 전송 (`[WARN]` / `[CRITICAL]`) |
+| WARN → CRITICAL (악화)       | 전송 (`[CRITICAL]`)           |
+| CRITICAL → WARN (완화)       | 전송 (`[WARN]`)               |
+| WARN / CRITICAL → OK (복구)  | 전송 (`[RECOVERED]`)          |
+| 동일 상태 유지 (WARN→WARN 등)    | 전송하지 않음                    |
+
+즉 사용률이 WARN/CRITICAL 임계치 이상으로 계속 유지되는 동안에는 매 분마다 반복 전송되지 않고,
+상태가 바뀌는 시점에만 한 번씩 전송됩니다. 다만 로그 파일(`WARN_LOG`, `CRIT_LOG`)에는
+상태 유지 여부와 무관하게 매 실행 결과가 계속 기록됩니다.
+
+> `.thread_mon_state` 파일을 삭제하면 다음 실행 시 직전 상태를 알 수 없으므로 `OK`로 간주합니다.
+> 이 경우 현재 상태가 WARN/CRITICAL이면 새로운 발생으로 판단해 알림이 다시 전송됩니다.
+
+## 13.3 카드 형식
+
+알림 카드는 제목 줄(상태별 아이콘/색상) + 멘션 줄 + 항목별 FactSet(표 형태)으로 구성되어,
+하나의 긴 줄로 이어지던 이전 방식보다 가독성이 좋습니다.
+
+| 상태         | 아이콘 | 색상        |
+| ---------- | --- | --------- |
+| WARN       | ⚠️  | warning   |
+| CRITICAL   | 🔴  | attention |
+| RECOVERED  | ✅   | good      |
+
+예시(WARN):
+
+```text
+⚠️ [WARN] Thread Pool 사용률 WARN
+<at>김재훈</at> 확인 부탁드립니다.
+
+시간              2026-09-17 10:01:00
+AJP 커넥터         ajp-nio-8009
+사용률             83% (83/100)
+Current Threads  100
+Connection Count 142
+CPU              6.7%
+MEM              21.3%
+Load Avg         0.05, 0.02, 0.00
+```
+
+## 13.4 수동 테스트
+
+```bash
+source config.env
+curl -sS --max-time 10 -w "\nHTTP_STATUS:%{http_code}\n" \
+  -X POST -H "Content-Type: application/json" \
+  -d '{"type":"message","attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"$schema":"http://adaptivecards.io/schemas/adaptive-card.json","type":"AdaptiveCard","version":"1.4","body":[{"type":"TextBlock","text":"⚠️ [TEST] 알림 테스트","weight":"Bolder","size":"Medium","color":"warning","wrap":true},{"type":"TextBlock","text":"<at>'"${TEAMS_MENTION_NAME}"'</at> 확인 부탁드립니다.","wrap":true},{"type":"FactSet","facts":[{"title":"시간","value":"'"$(date '+%F %T')"'"},{"title":"비고","value":"수동 테스트 메시지"}]}],"msteams":{"entities":[{"type":"mention","text":"<at>'"${TEAMS_MENTION_NAME}"'</at>","mentioned":{"id":"'"${TEAMS_MENTION_ID}"'","name":"'"${TEAMS_MENTION_NAME}"'"}}]}}}]}' \
+  "${WEBHOOK_URL}"
+```
+
+`HTTP_STATUS:202`가 반환되고 Teams 채널/챗에 멘션과 FactSet 표가 함께 도착하면 정상입니다.
+
+---
+
+# 14. 문제 해결
 
 ## JMX Exporter에 접속되지 않는 경우
 
@@ -532,7 +633,7 @@ bash -n thread_mon.sh
 
 ---
 
-# 14. 전체 설치 순서
+# 15. 전체 설치 순서
 
 처음 설치하는 경우 다음 순서로 진행합니다.
 
@@ -575,7 +676,7 @@ crontab -e
 
 ---
 
-# 15. 주의사항
+# 16. 주의사항
 
 * JMX Exporter의 `9404` 포트가 외부에 노출되지 않도록 방화벽 정책을 확인합니다.
 * `thread_mon.sh`는 로컬의 `localhost:9404/metrics`를 조회하는 것을 기본으로 합니다.
