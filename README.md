@@ -520,6 +520,43 @@ CRIT_THRESHOLD=90
 > `.thread_mon_state` 파일을 삭제하면 다음 실행 시 직전 상태를 알 수 없으므로 `OK`로 간주합니다.
 > 이 경우 현재 상태가 WARN/CRITICAL이면 새로운 발생으로 판단해 알림이 다시 전송됩니다.
 
+## 13.5 Thread Dump 자동 생성
+
+Teams 알림과 같은 시점(직전 상태와 다른, 즉 새로 WARN/CRITICAL에 진입한 순간)에
+WAS의 Thread Dump를 함께 남깁니다. 사용률이 WARN/CRITICAL로 계속 유지되는 동안에는
+알림과 마찬가지로 반복해서 뜨지 않습니다.
+
+### 동작 방식
+
+1. `ps` 목록에서 `WAS_PROCESS_PATTERN`(기본값 `org.apache.catalina.startup.Bootstrap`)과
+   일치하는 프로세스를 `pgrep -f`로 검색해 PID를 자동으로 찾습니다.
+2. `jstack <PID>` (없으면 `jcmd <PID> Thread.print`)로 덤프를 떠서
+   `${LOG_DIR}/threaddump/threaddump_<WARN|CRITICAL>_<시각>_pid<PID>.log`에 저장합니다.
+3. 오래된 덤프 파일(`THREAD_DUMP_RETENTION_DAYS`, 기본 7일 경과)은 자동으로 삭제합니다.
+4. 덤프 파일 경로는 `WARN_LOG`/`CRIT_LOG`에 기록되고, Teams 알림 카드의
+   `Thread Dump` 항목에도 표시됩니다.
+
+### 관련 설정 (`config.env`에서 덮어쓰기 가능)
+
+| 변수                        | 기본값                                          | 설명                                   |
+| ------------------------- | -------------------------------------------- | ------------------------------------ |
+| `WAS_PROCESS_PATTERN`      | `org.apache.catalina.startup.Bootstrap`      | `pgrep -f`로 WAS 프로세스를 찾는 패턴          |
+| `THREAD_DUMP_DIR`          | `${LOG_DIR}/threaddump`                      | Thread Dump 저장 디렉토리                  |
+| `THREAD_DUMP_RETENTION_DAYS` | `7`                                         | 이 기간(일)이 지난 덤프 파일은 자동 삭제              |
+| `JSTACK_BIN`               | `jstack`                                     | 덤프에 사용할 실행 파일 (PATH에 없으면 전체 경로 지정)   |
+
+> Tomcat이 아닌 다른 WAS(HyperFrame 등)를 사용하거나 커스텀 실행 커맨드를 쓰는 경우,
+> `ps -ef | grep java`로 실제 커맨드라인을 확인한 뒤 `WAS_PROCESS_PATTERN`을
+> `config.env`에서 그 커맨드라인의 일부 문자열로 재정의해야 합니다.
+>
+> `jstack`/`jcmd`는 JDK에 포함된 도구이므로 JRE만 설치된 환경에서는 동작하지 않습니다.
+> 이 경우 두 도구 모두 찾지 못했다는 에러가 `WARN_LOG`/`CRIT_LOG`에 기록되고,
+> Thread Dump 없이 Teams 알림만 전송됩니다.
+>
+> 프로세스가 여러 개 매칭되면(예: 같은 서버에 WAS가 여러 개 실행 중) 첫 번째로 검색된
+> PID를 대상으로 합니다. 특정 WAS를 지정하고 싶다면 `WAS_PROCESS_PATTERN`을
+> 더 구체적으로(예: 포트 번호나 인스턴스 이름 포함) 설정하세요.
+
 ## 13.3 카드 형식
 
 알림 카드는 제목 줄(상태별 아이콘/색상) + 멘션 줄 + 항목별 FactSet(표 형태)으로 구성되어,
