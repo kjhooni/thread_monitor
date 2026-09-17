@@ -179,7 +179,9 @@ fi
 # Thread Pool 사용률
 USAGE=$((AJP_BUSY * 100 / AJP_MAX))
 
-LOG_MSG="$(date '+%F %T') AJP=${AJP_NAME} BUSY=${AJP_BUSY}/${AJP_MAX}(${USAGE}%) CURRENT=${AJP_CURR} CONNECTION=${AJP_CONN}"
+SERVER_HOSTNAME="$(hostname)"
+
+LOG_MSG="$(date '+%F %T') HOST=${SERVER_HOSTNAME} AJP=${AJP_NAME} BUSY=${AJP_BUSY}/${AJP_MAX}(${USAGE}%) CURRENT=${AJP_CURR} CONNECTION=${AJP_CONN}"
 
 # 일반 로그
 echo "${LOG_MSG}" >> "${INFO_LOG}"
@@ -216,6 +218,7 @@ if [ "${CURRENT_STATE}" != "OK" ]; then
     if [ "${CURRENT_STATE}" != "${PREV_STATE}" ]; then
         send_teams_alert "${CURRENT_STATE}" "Thread Pool 사용률 ${CURRENT_STATE}" \
             "시간=$(date '+%F %T')" \
+            "서버=${SERVER_HOSTNAME}" \
             "AJP 커넥터=${AJP_NAME}" \
             "사용률=${USAGE}% (${AJP_BUSY}/${AJP_MAX})" \
             "Current Threads=${AJP_CURR}" \
@@ -230,6 +233,7 @@ else
     if [ "${PREV_STATE}" != "OK" ]; then
         send_teams_alert "RECOVERED" "Thread Pool 정상 복구" \
             "시간=$(date '+%F %T')" \
+            "서버=${SERVER_HOSTNAME}" \
             "AJP 커넥터=${AJP_NAME}" \
             "사용률=${USAGE}% (${AJP_BUSY}/${AJP_MAX})" \
             "Current Threads=${AJP_CURR}" \
