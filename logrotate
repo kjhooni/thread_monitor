@@ -1,0 +1,11 @@
+/data/hyperframe/log/*/threadpool/threadpool_*.log
+{
+    rotate 30
+    daily
+    compress
+
+    missingok
+    notifempty
+
+    su root root
+}
